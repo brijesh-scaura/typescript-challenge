@@ -1,4 +1,4 @@
-## Type-Safe Multi-Provider LLM SDK**
+## Type-Safe Multi-Provider LLM SDK
 
 You're building a TypeScript SDK that lets developers chat with multiple LLM providers — OpenAI, Anthropic, and Gemini — through a single unified `chat()` function.
 

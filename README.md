@@ -1,57 +1,73 @@
-## Type-Safe Multi-Provider LLM SDK
+## Type-Safe Event Bus
 
-You're building a TypeScript SDK that lets developers chat with multiple LLM providers — OpenAI, Anthropic, and Gemini — through a single unified `chat()` function.
+```typescript
+// ─────────────────────────────────────────────
+// Type-Safe Event Bus
+// ─────────────────────────────────────────────
+//
+// Implement an EventBus<TEvents> class that supports typed
+// subscribe/emit/unsubscribe with full type safety.
+//
+// RULES (must hold):
+// 1. Zero `any`. Zero `as` casts. (One internal cast is OK
+//    if you can defend it out loud.)
+// 2. Calling `emit` with a wrong payload shape → compile error.
+// 3. Calling `emit` with an unknown event name → compile error.
+// 4. Handler payload must be inferred — no manual generics
+//    at the call site.
+// 5. `on(...)` returns an unsubscribe function. Calling it
+//    must remove the handler (no leaks).
+// 6. `emit` returns a Promise that resolves when ALL handlers
+//    (sync + async) settle. One handler throwing must NOT
+//    prevent the others from running.
+// 7. No external libraries.
+//
+// REQUIRED API:
+//   - on<K>(event: K, handler: (payload: TEvents[K]) => void | Promise<void>): () => void
+//   - off<K>(event: K, handler): void
+//   - emit<K>(event: K, payload: TEvents[K]): Promise<void>
+//   - once<K>(event: K, handler): () => void
+//   - waitFor<K>(event: K): Promise<TEvents[K]>
+//
+// BONUS (if time):
+//   - onAny(handler: (e: { type: K; payload: TEvents[K] }) => void): () => void
+//     — must be a discriminated union over keyof TEvents
+//
+// ─────────────────────────────────────────────
 
-The SDK must satisfy these requirements:
+type AppEvents = {
+  'user.signup':   { userId: string; email: string; plan: 'free' | 'pro' };
+  'user.delete':   { userId: string };
+  'order.placed':  { orderId: string; userId: string; total: number };
+  'order.refund':  { orderId: string; reason: string };
+};
 
-1. **Three providers are supported:** `openai`, `anthropic`, `gemini`. Each is created via a factory function (`openai()`, `anthropic()`, `gemini()`) that returns an `Adapter`.
+// TODO: Implement
+class EventBus<TEvents extends Record<string, unknown>> {
+  // ...
+}
 
-2. **Each provider supports only its own models:**
-   - OpenAI: `"gpt-4o" | "gpt-4.1" | "gpt-4.1-mini" | "gpt-3.5-turbo"`
-   - Anthropic: `"claude-3-opus" | "claude-3-sonnet" | "claude-3-haiku"`
-   - Gemini: `"gemini-1.5-pro" | "gemini-1.5-flash"`
+// ─────────────────────────────────────────────
+// These calls should ALL type-check:
+// ─────────────────────────────────────────────
+const bus = new EventBus<AppEvents>();
 
-3. **Each provider has its own options shape:**
-   - OpenAI: `temperature`, `maxTokens`, `presencePenalty`
-   - Anthropic: `topK`, `topP`, `maxOutputTokens`
-   - Gemini: `safetyLevel` (`"low" | "medium" | "high"`), `responseMimeType` (`"text/plain" | "application/json"`)
-
-4. The `chat()` function takes a config object with `adapter`, `messages`, `model`, `conversationId`, and optional `providerOptions`.
-
-**The hard requirement — enforce all of this at compile time:**
-
-- If `adapter` is `openai()`, then `model` MUST be an OpenAI model, and `providerOptions` MUST match `OpenAIOptions`. Passing `"claude-3-opus"` as the model, or `topK` in options, should be a **TypeScript compile error** — not a runtime check.
-- Same constraint for Anthropic and Gemini.
-- The user should NOT have to pass a generic parameter manually. `chat({ adapter: openai(), ... })` should infer everything automatically.
-
-**Your task:**
-
-Implement the full type system and the `chat()` function so that:
-
-```ts
-// ✅ Should compile
-chat({
-  adapter: openai(),
-  messages: [{ role: "user", content: "hi" }],
-  model: "gpt-4o",
-  conversationId: "c1",
-  providerOptions: { temperature: 0.7 }
+const unsub = bus.on('user.signup', (p) => {
+  // p is { userId: string; email: string; plan: 'free' | 'pro' }
+  console.log(p.email, p.plan);
 });
 
-// ❌ Should FAIL to compile — wrong model for adapter
-chat({
-  adapter: openai(),
-  messages: [],
-  model: "claude-3-opus",
-  conversationId: "c2"
+await bus.emit('user.signup', {
+  userId: 'u_1', email: 'z@example.com', plan: 'pro',
 });
 
-// ❌ Should FAIL to compile — temperature not valid for Gemini
-chat({
-  adapter: gemini(),
-  messages: [],
-  model: "gemini-1.5-pro",
-  conversationId: "c3",
-  providerOptions: { temperature: 1.0 }
-});
+unsub();
+
+// ─────────────────────────────────────────────
+// These should ALL be compile errors:
+// ─────────────────────────────────────────────
+// bus.emit('user.signup', { userId: '1' });           // missing fields
+// bus.emit('unknown.event', {} as never);             // unknown event
+// bus.on('user.signup', (p) => p.somethingWrong);     // unknown field
+// bus.emit('user.signup', { userId: '1', email: 'x', plan: 'enterprise' }); // bad union
 ```
